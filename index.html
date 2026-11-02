@@ -433,6 +433,44 @@ function listen(onInterim){
     try{r.start()}catch(e){rec=null;rej('start')}
   });
 }
+async function ensureMic(){
+  try{
+    if(navigator.permissions&&navigator.permissions.query){
+      const st=await navigator.permissions.query({name:'microphone'});
+      if(st.state==='denied'){micHelp();return false}
+      if(st.state==='granted')return true;
+    }
+  }catch(e){}
+  if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+    try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop());return true}
+    catch(e){if(e&&(e.name==='NotAllowedError'||e.name==='SecurityError')){micHelp();return false}}
+  }
+  return true;
+}
+function micHelp(){
+  sheetOpen=true;
+  let el=document.getElementById('sheet');
+  if(!el){el=document.createElement('div');el.id='sheet';el.className='sheet-bg';document.body.appendChild(el)}
+  const ios=isIOS;
+  el.innerHTML=`<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetT">
+    <div class="row" style="justify-content:space-between"><h2 id="sheetT">Liberar o microfone</h2><button class="btn small ghost" data-act="sheetclose">Fechar</button></div>
+    <p class="hint">O celular está bloqueando o microfone para este app. Só você pode liberar, em menos de 1 minuto:</p>
+    ${ios?`<ol class="steps" style="font-size:17px">
+      <li>Abra <b>Ajustes</b> do iPhone.</li>
+      <li>Toque em <b>Safari</b> e depois em <b>Microfone</b>.</li>
+      <li>Escolha <b>Permitir</b>.</li>
+      <li>Volte aqui e toque em <b>Testar de novo</b>.</li></ol>`
+    :`<ol class="steps" style="font-size:17px">
+      <li>Abra as <b>Configurações</b> do celular.</li>
+      <li>Toque em <b>Aplicativos</b> e depois em <b>Chrome</b>.</li>
+      <li>Toque em <b>Permissões</b>, depois <b>Microfone</b>, e escolha <b>Permitir durante o uso</b>.</li>
+      <li>Volte ao Chrome, abra o link do app, toque no <b>cadeado</b> ao lado do endereço, depois <b>Permissões</b>, <b>Microfone</b> e <b>Permitir</b>.</li>
+      <li>Volte aqui e toque em <b>Testar de novo</b>.</li></ol>`}
+    <div class="row" style="margin-top:14px"><button class="btn" data-act="mictest">Testar de novo</button></div>
+    <p class="hint" style="margin-top:12px">Enquanto isso, dá para praticar digitando em “Prefere digitar?”.</p>
+  </div>`;
+  el.onclick=ev=>{if(ev.target===el)closeSheet()};
+}
 function micError(code){
   if(code==='unsupported')return'Este navegador não reconhece voz. Use o Chrome (Android/computador) ou o Safari no iPhone, ou digite a frase.';
   if(code==='not-allowed'||code==='service-not-allowed')return'O microfone foi bloqueado. Libere o microfone para este site ou abra o app na página própria dele; enquanto isso, digite a frase.';
@@ -506,13 +544,15 @@ function resetItem(){if(!session)return;Object.assign(session,{showPt:false,show
 function endSession(){if(rec)try{rec.abort()}catch(e){}session=null;tab='hoje';render();window.scrollTo(0,0)}
 async function doListen(){
   if(rec){try{rec.stop()}catch(e){}return}
+  if(!SR){toast(micError('unsupported'));return}
+  if(!(await ensureMic()))return;
   session.listening=true;session.live='';render();
   try{
     const said=await listen(t=>{session.live=t;const l=$('#live');if(l)l.textContent=t});
     session.listening=false;
     if(!said){session.live='';render();toast(micError('no-speech'));return}
     check(said);
-  }catch(e){session.listening=false;session.live='';render();toast(micError(e))}
+  }catch(e){session.listening=false;session.live='';render();if(e==='not-allowed'||e==='service-not-allowed')micHelp();else toast(micError(e))}
 }
 function check(said){
   const it=session.items[session.i];
@@ -546,12 +586,14 @@ function scrollChat(){const c=$('#chatEnd');if(c)c.scrollIntoView({block:'end'})
 let convoListening=false;
 async function convoListen(){
   if(rec){try{rec.stop()}catch(e){}return}
+  if(!SR){toast(micError('unsupported'));return}
+  if(!(await ensureMic()))return;
   convoListening=true;render();
   try{
     const said=await listen(t=>{const i=$('#chatText');if(i)i.value=t});
     convoListening=false;
     if(said)convoTurn(said);else{render();toast(micError('no-speech'))}
-  }catch(e){convoListening=false;render();toast(micError(e))}
+  }catch(e){convoListening=false;render();if(e==='not-allowed'||e==='service-not-allowed')micHelp();else toast(micError(e))}
 }
 
 /* ---------- telas ---------- */
@@ -776,6 +818,7 @@ document.addEventListener('click',async e=>{
   if(a==='sheetclose'){closeSheet();return}
   if(a==='dlicon'){dlIcon();return}
   if(a==='dlfile'){dlFile();return}
+  if(a==='mictest'){closeSheet();ensureMic().then(ok=>{if(ok)toast('Microfone liberado. Toque no 🎙️ e fale.')});return}
   if(a==='tab'){if(rec)try{rec.abort()}catch(_){}tab=v;session=null;render();window.scrollTo(0,0)}
   else if(a==='who'){if(v===profile)return;profile=v;lsSet('isc:profile',v);S=loadLocal(v);session=null;convo={unit:null,msgs:[],busy:false};if(tab==='pratica')tab='hoje';render();pullCloud()}
   else if(a==='unit')startUnit(v);
